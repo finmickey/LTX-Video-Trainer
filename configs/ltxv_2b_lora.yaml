@@ -49,6 +49,9 @@ validation:
     - "a professional portrait video of a person with blurry bokeh background"
     - "a video of a person wearing a nice suit"
   negative_prompt: "worst quality, inconsistent motion, blurry, jittery, distorted"
+  images: # Use images as conditioning for the first frame, set to null to disable
+    - "/path/to/image1.png"
+    - "/path/to/image2.png"
   video_dims: [768, 448, 89] # [width, height, frames]
   seed: 42
   inference_steps: 50
