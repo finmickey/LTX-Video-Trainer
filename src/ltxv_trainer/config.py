@@ -191,7 +191,7 @@ class ValidationConfig(ConfigBaseModel):
 
     images: list[str] | None = Field(
         default=None,
-        description="List of paths images to use for validation. "
+        description="List of image paths to use for validation. "
         "One image path must be provided for each validation prompt",
     )
 
