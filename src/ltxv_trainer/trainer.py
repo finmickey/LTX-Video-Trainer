@@ -12,7 +12,7 @@ import torch
 from accelerate import Accelerator
 from accelerate.utils import set_seed
 from diffusers import LTXImageToVideoPipeline, LTXPipeline
-from diffusers.utils import export_to_video, load_image
+from diffusers.utils import export_to_video
 from loguru import logger
 from peft import LoraConfig, get_peft_model_state_dict
 from peft.tuners.tuners_utils import BaseTunerLayer
@@ -49,7 +49,7 @@ from ltxv_trainer.datasets import PrecomputedDataset
 from ltxv_trainer.model_loader import load_ltxv_components
 from ltxv_trainer.quantization import quantize_model
 from ltxv_trainer.timestep_samplers import SAMPLERS
-from ltxv_trainer.utils import get_gpu_memory_gb
+from ltxv_trainer.utils import get_gpu_memory_gb, open_image_as_srgb
 
 # Disable irrelevant warnings from transformers
 os.environ["TOKENIZERS_PARALLELISM"] = "true"
@@ -700,7 +700,7 @@ class LtxvTrainer:
 
             if use_images:
                 image_path = self._config.validation.images[j]
-                pipeline_inputs["image"] = load_image(image_path)
+                pipeline_inputs["image"] = open_image_as_srgb(image_path)
 
             with autocast(self._accelerator.device.type, dtype=torch.bfloat16):
                 result = pipeline(**pipeline_inputs)
