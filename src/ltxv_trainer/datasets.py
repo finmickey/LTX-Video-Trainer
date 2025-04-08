@@ -226,8 +226,9 @@ class ImageOrVideoDataset(Dataset):
         video_path: Path = self.video_paths[index]
         if video_path.suffix.lower() in [".png", ".jpg", ".jpeg"]:
             video = self._preprocess_image(video_path)
+            fps = None
         else:
-            video = self._preprocess_video(video_path)
+            video, fps = self._preprocess_video(video_path)
 
         return {
             "prompt": prompt,
@@ -236,6 +237,7 @@ class ImageOrVideoDataset(Dataset):
                 "num_frames": video.shape[0],
                 "height": video.shape[2],
                 "width": video.shape[3],
+                "fps": fps,
             },
         }
 
@@ -465,6 +467,7 @@ class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
     def _preprocess_video(self, path: Path) -> torch.Tensor:
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
+        fps = video_reader.get_avg_fps()
         relevant_buckets = [bucket for bucket in self.resolution_buckets if bucket[0] <= video_num_frames]
 
         nearest_frame_bucket = min(
@@ -481,7 +484,7 @@ class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
         nearest_res = self._find_nearest_resolution(frames.shape[2], frames.shape[3])
         frames_resized = self._resize_for_rectangle_crop(frames, nearest_res)
         frames = torch.stack([self.video_transforms(frame) for frame in frames_resized], dim=0)
-        return frames
+        return frames, fps
 
     def _find_nearest_resolution(self, height: int, width: int) -> tuple[int, int]:
         nearest_res = min(self.resolution_buckets, key=lambda x: abs(x[1] - height) + abs(x[2] - width))

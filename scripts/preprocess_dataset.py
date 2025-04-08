@@ -284,11 +284,13 @@ class DatasetPreprocessor:
             latent_path = latents_dir / f"latent_{file_idx:08d}.pt"
             condition_path = conditions_dir / f"condition_{file_idx:08d}.pt"
 
+            fps = batch["video_metadata"]["fps"][i].item()
             latent_item = {
                 "latents": video_latents["latents"][i],
                 "num_frames": video_latents["num_frames"],
                 "height": video_latents["height"],
                 "width": video_latents["width"],
+                "fps": fps,
             }
             condition_item = {
                 "prompt_embeds": text_embeddings["prompt_embeds"][i],
@@ -329,7 +331,7 @@ class DatasetPreprocessor:
                     torchvision.io.write_video(
                         str(output_path),
                         video.cpu(),
-                        fps=30,
+                        fps=fps,
                         video_codec="h264",
                         options={"crf": "18"},
                     )
