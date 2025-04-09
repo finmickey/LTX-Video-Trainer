@@ -8,10 +8,11 @@ from diffusers import (
     AutoencoderKLLTXVideo,
     BitsAndBytesConfig,
     FlowMatchEulerDiscreteScheduler,
-    LTXVideoTransformer3DModel,
+    # LTXVideoTransformer3DModel,
 )
 from pydantic import BaseModel, ConfigDict
 from transformers import T5EncoderModel, T5Tokenizer
+from ltxv_trainer.transformer_ltx_audio import LTXVideoTransformer3DModel
 
 # The main HF repo to load scheduler, tokenizer, and text encoder from
 HF_MAIN_REPO = "Lightricks/LTX-Video"

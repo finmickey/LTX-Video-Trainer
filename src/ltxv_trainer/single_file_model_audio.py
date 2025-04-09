@@ -27,7 +27,6 @@ from diffusers.utils import deprecate, is_accelerate_available, logging
 from diffusers.loaders.single_file_utils import (
     SingleFileComponentError,
     convert_ltx_transformer_checkpoint_to_diffusers,
-    convert_ltx_vae_checkpoint_to_diffusers,
     fetch_diffusers_config,
     fetch_original_config,
     load_single_file_checkpoint,
@@ -37,10 +36,6 @@ SINGLE_FILE_LOADABLE_CLASSES = {
     "LTXVideoTransformer3DModel": {
         "checkpoint_mapping_fn": convert_ltx_transformer_checkpoint_to_diffusers,
         "default_subfolder": "transformer",
-    },
-    "AutoencoderKLLTXVideo": {
-        "checkpoint_mapping_fn": convert_ltx_vae_checkpoint_to_diffusers,
-        "default_subfolder": "vae",
     },
 }
 
@@ -144,13 +139,10 @@ class FromOriginalModelMixin:
         >>> model = StableCascadeUNet.from_single_file(ckpt_path)
         ```
         """
-
-        mapping_class_name = _get_single_file_loadable_mapping_class(cls)
-        # if class_name not in SINGLE_FILE_LOADABLE_CLASSES:
-        if mapping_class_name is None:
-            raise ValueError(
-                f"FromOriginalModelMixin is currently only compatible with {', '.join(SINGLE_FILE_LOADABLE_CLASSES.keys())}"
-            )
+        assert cls.__name__.endswith(
+            "LTXVideoTransformer3DModel"
+        ), "This code only loads LTXVideoTransformer3DModel"
+        mapping_class_name = "LTXVideoTransformer3DModel"
 
         pretrained_model_link_or_path = kwargs.get(
             "pretrained_model_link_or_path", None
@@ -334,6 +326,15 @@ class FromOriginalModelMixin:
                 for param_name in diffusers_format_checkpoint
                 if param_name not in empty_state_dict
             ]
+            new_keys = [
+                param_name
+                for param_name in empty_state_dict
+                if param_name not in diffusers_format_checkpoint
+            ]
+            logger.info(
+                f"Keys in original model but not in audio version: {unexpected_keys}"
+            )
+            logger.info(f"Keys in audio version but not in original model: {new_keys}")
             device_map = {"": param_device}
             load_model_dict_into_meta(
                 model,

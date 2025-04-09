@@ -21,7 +21,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.loaders import FromOriginalModelMixin, PeftAdapterMixin
+from diffusers.loaders import PeftAdapterMixin
 from diffusers.utils import (
     USE_PEFT_BACKEND,
     logging,
@@ -36,6 +36,7 @@ from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers.models.normalization import AdaLayerNormSingle, RMSNorm
 
+from ltxv_trainer.single_file_model_audio import FromOriginalModelMixin
 
 logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
