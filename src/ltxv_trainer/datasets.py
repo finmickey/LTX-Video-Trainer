@@ -75,6 +75,7 @@ class DummyDataset(Dataset):
         width: int = 1024,
         height: int = 1024,
         num_frames: int = 25,
+        fps: int = 24,
         dataset_length: int = 200,
         latent_dim: int = 128,
         latent_spatial_compression_ratio: int = 32,
@@ -94,6 +95,7 @@ class DummyDataset(Dataset):
         self.width = width
         self.height = height
         self.num_frames = num_frames
+        self.fps = fps
         self.dataset_length = dataset_length
         self.latent_dim = latent_dim
         self.num_latent_frames = (num_frames - 1) // latent_temporal_compression_ratio + 1
@@ -113,6 +115,7 @@ class DummyDataset(Dataset):
                 "num_frames": self.num_latent_frames,
                 "height": self.latent_height,
                 "width": self.latent_width,
+                "fps": self.fps,
             },
             "text_conditions": {
                 "prompt_embeds": torch.randn(
@@ -324,19 +327,20 @@ class ImageOrVideoDataset(Dataset):
         image = image.unsqueeze(0).contiguous()  # [C, H, W] -> [1, C, H, W] (1-frame video)
         return image
 
-    def _preprocess_video(self, path: Path) -> torch.Tensor:
+    def _preprocess_video(self, path: Path) -> tuple[torch.Tensor, float]:
         """
         Loads a single video, or latent and prompt embedding, based on initialization parameters.
 
         Returns a [F, C, H, W] video tensor.
         """
         video_reader = decord.VideoReader(uri=path.as_posix())
+        fps = video_reader.get_avg_fps()
         indices = list(range(self.max_num_frames))
         frames = video_reader.get_batch(indices)
         frames = frames[: self.max_num_frames].float() / 255.0
         frames = frames.permute(0, 3, 1, 2).contiguous()
         frames = torch.stack([self.video_transforms(frame) for frame in frames], dim=0)
-        return frames
+        return frames, fps
 
 
 class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
@@ -356,9 +360,10 @@ class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
         image = image.unsqueeze(0).contiguous()
         return image
 
-    def _preprocess_video(self, path: Path) -> torch.Tensor:
+    def _preprocess_video(self, path: Path) -> tuple[torch.Tensor, float]:
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
+        fps = video_reader.get_avg_fps()
 
         relevant_buckets = [bucket for bucket in self.resolution_buckets if bucket[0] <= video_num_frames]
         if not relevant_buckets:
@@ -383,7 +388,7 @@ class ImageOrVideoDatasetWithResizing(ImageOrVideoDataset):
         frames_resized = torch.stack([resize(frame, nearest_res) for frame in frames], dim=0)
         frames = torch.stack([self.video_transforms(frame) for frame in frames_resized], dim=0)
 
-        return frames
+        return frames, fps
 
     def _find_nearest_resolution(self, height: int, width: int) -> tuple[int, int]:
         nearest_res = min(self.resolution_buckets, key=lambda x: abs(x[1] - height) + abs(x[2] - width))
@@ -464,7 +469,7 @@ class ImageOrVideoDatasetWithResizeAndRectangleCrop(ImageOrVideoDataset):
         arr = TT.functional.crop(arr, top=top, left=left, height=image_size[0], width=image_size[1])
         return arr
 
-    def _preprocess_video(self, path: Path) -> torch.Tensor:
+    def _preprocess_video(self, path: Path) -> tuple[torch.Tensor, float]:
         video_reader = decord.VideoReader(uri=path.as_posix())
         video_num_frames = len(video_reader)
         fps = video_reader.get_avg_fps()
