@@ -18,7 +18,7 @@ import yaml
 from rich.console import Console
 
 from ltxv_trainer.config import LtxvTrainerConfig
-from ltxv_trainer.trainer import LtxvTrainer
+from ltxv_trainer.audio_trainer import LtxvTrainer
 
 console = Console()
 app = typer.Typer(

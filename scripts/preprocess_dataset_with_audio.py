@@ -34,12 +34,15 @@ from rich.progress import (
 )
 from torch.utils.data import DataLoader
 from transformers.utils.logging import disable_progress_bar
+from transformers import Wav2Vec2Model, Wav2Vec2Processor
 
-from ltxv_trainer.datasets import (
+from ltxv_trainer.audio_dataset import (
     PRECOMPUTED_CONDITIONS_DIR_NAME,
     PRECOMPUTED_LATENTS_DIR_NAME,
-    ImageOrVideoDatasetWithResizeAndRectangleCrop,
+    PRECOMPUTED_AUDIO_DIR_NAME,
+    ImageOrVideoWithAudioDatasetWithResizeAndRectangleCrop,
 )
+from ltxv_trainer.encode_audio import encode_audio
 from ltxv_trainer.ltxv_utils import decode_video, encode_prompt, encode_video
 from ltxv_trainer.model_loader import (
     LtxvModelVersion,
@@ -154,7 +157,7 @@ class DatasetPreprocessor:
             if args.output_dir
             else Path(data_root) / ".precomputed"
         )
-        latents_dir, conditions_dir = self._create_output_dirs(output_base)
+        latents_dir, conditions_dir, audio_dir = self._create_output_dirs(output_base)
 
         if args.id_token:
             console.print(
@@ -211,6 +214,7 @@ class DatasetPreprocessor:
                     batch_size=args.batch_size,
                     latents_dir=latents_dir,
                     conditions_dir=conditions_dir,
+                    audio_dir=audio_dir,
                     output_base=output_base,
                     decode_videos=args.decode_videos,
                 )
@@ -233,19 +237,27 @@ class DatasetPreprocessor:
             self.text_encoder = load_text_encoder(
                 load_in_8bit=load_text_encoder_in_8bit
             ).to(self.device)
+            self.audio_processor = Wav2Vec2Processor.from_pretrained(
+                "facebook/wav2vec2-large-960h-lv60-self"
+            )
+            self.wav2vec_model = Wav2Vec2Model.from_pretrained(
+                "facebook/wav2vec2-large-960h-lv60-self"
+            ).to(self.device)
 
         console.print("[bold green]✓[/] Models loaded successfully")
 
     @staticmethod
-    def _create_output_dirs(output_base: Path) -> tuple[Path, Path]:
+    def _create_output_dirs(output_base: Path) -> tuple[Path, Path, Path]:
         """Create and return paths for output directories"""
         latents_dir = output_base / PRECOMPUTED_LATENTS_DIR_NAME
         conditions_dir = output_base / PRECOMPUTED_CONDITIONS_DIR_NAME
+        audio_dir = output_base / PRECOMPUTED_AUDIO_DIR_NAME
 
         latents_dir.mkdir(parents=True, exist_ok=True)
         conditions_dir.mkdir(parents=True, exist_ok=True)
+        audio_dir.mkdir(parents=True, exist_ok=True)
 
-        return latents_dir, conditions_dir
+        return latents_dir, conditions_dir, audio_dir
 
     @staticmethod
     def _create_dataloader(
@@ -260,7 +272,7 @@ class DatasetPreprocessor:
     ) -> DataLoader:
         """Initialize dataset and create dataloader"""
         with console.status("[bold]Loading dataset...", spinner="dots"):
-            dataset = ImageOrVideoDatasetWithResizeAndRectangleCrop(
+            dataset = ImageOrVideoWithAudioDatasetWithResizeAndRectangleCrop(
                 data_root=data_root,
                 dataset_file=dataset_file,
                 caption_column=caption_column,
@@ -287,6 +299,7 @@ class DatasetPreprocessor:
         batch_size: int,
         latents_dir: Path,
         conditions_dir: Path,
+        audio_dir: Path,
         output_base: Path,
         decode_videos: bool,
     ) -> None:
@@ -306,11 +319,19 @@ class DatasetPreprocessor:
             device=self.device,
         )
 
+        audio_latents = encode_audio(
+            audio=batch["audio"],
+            processor=self.audio_processor,
+            wav2vec_model=self.wav2vec_model,
+            device=self.device,
+        )
+
         # Save each item in the batch
         for i in range(len(batch["prompt"])):
             file_idx = batch_idx * batch_size + i
             latent_path = latents_dir / f"latent_{file_idx:08d}.pt"
             condition_path = conditions_dir / f"condition_{file_idx:08d}.pt"
+            audio_path = audio_dir / f"audio_{file_idx:08d}.pt"
 
             fps = batch["video_metadata"]["fps"][i].item()
             latent_item = {
@@ -324,46 +345,19 @@ class DatasetPreprocessor:
                 "prompt_embeds": text_embeddings["prompt_embeds"][i],
                 "prompt_attention_mask": text_embeddings["prompt_attention_mask"][i],
             }
+            audio_item = {
+                "audio_latents": audio_latents[i],
+            }
 
             torch.save(latent_item, latent_path)
             torch.save(condition_item, condition_path)
+            torch.save(audio_item, audio_path)
 
             # Decode video/image if requested
             if decode_videos:
-                decoded_dir = output_base / "decoded_videos"
-                decoded_dir.mkdir(parents=True, exist_ok=True)
-
-                video = decode_video(
-                    vae=self.vae,
-                    latents=latent_item["latents"],
-                    num_frames=latent_item["num_frames"],
-                    height=latent_item["height"],
-                    width=latent_item["width"],
-                    device=self.device,
+                raise NotImplementedError(
+                    "Decoding videos is not implemented yet in audio version"
                 )
-                video = video[0]  # Remove batch dimension
-                # Convert to uint8 for saving
-                video = (video * 255).round().clamp(0, 255).to(torch.uint8)
-                video = video.permute(1, 2, 3, 0)  # [C,F,H,W] -> [F,H,W,C]
-
-                # For single frame (images), save as PNG, otherwise as MP4
-                is_image = video.shape[0] == 1
-                if is_image:
-                    output_path = decoded_dir / f"image_{file_idx:08d}.png"
-                    torchvision.utils.save_image(
-                        video[0].permute(2, 0, 1)
-                        / 255.0,  # [H,W,C] -> [C,H,W] and normalize
-                        str(output_path),
-                    )
-                else:
-                    output_path = decoded_dir / f"video_{file_idx:08d}.mp4"
-                    torchvision.io.write_video(
-                        str(output_path),
-                        video.cpu(),
-                        fps=fps,
-                        video_codec="h264",
-                        options={"crf": "18"},
-                    )
 
 
 def _parse_resolution_buckets(
