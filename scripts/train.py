@@ -18,7 +18,7 @@ import yaml
 from rich.console import Console
 
 from ltxv_trainer.config import LtxvTrainerConfig
-from ltxv_trainer.trainer import LtxvTrainer
+from ltxv_trainer.audio_trainer import LtxvAudioTrainer
 
 console = Console()
 app = typer.Typer(
@@ -47,7 +47,7 @@ def main(config_path: str = typer.Argument(..., help="Path to YAML configuration
         raise typer.Exit(code=1) from e
 
     # Initialize the training process
-    trainer = LtxvTrainer(trainer_config)
+    trainer = LtxvAudioTrainer(trainer_config)
     trainer.train()
 
 

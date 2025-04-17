@@ -175,7 +175,8 @@ def caption_media(
                 )
 
                 # Convert absolute path to relative path (relative to the output file's directory)
-                rel_path = str(media_file.resolve().relative_to(base_dir))
+                # rel_path = str(media_file.resolve().relative_to(base_dir))
+                rel_path = str(media_file.resolve())
                 # Store the caption with the relative path as key
                 captions[rel_path] = caption
 
