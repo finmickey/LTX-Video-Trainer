@@ -281,6 +281,17 @@ class LTXVideoTransformerBlock(nn.Module):
             qk_norm=qk_norm,
             processor=LTXVideoAttentionProcessor2_0(),
         )
+        self.audio_attn = Attention(
+            query_dim=dim,
+            cross_attention_dim=cross_attention_dim,
+            heads=num_attention_heads,
+            kv_heads=num_attention_heads,
+            dim_head=attention_head_dim,
+            bias=attention_bias,
+            out_bias=attention_out_bias,
+            qk_norm=qk_norm,
+            processor=LTXVideoAttentionProcessor2_0(),
+        )
 
         self.ff = FeedForward(dim, activation_fn=activation_fn)
 
@@ -291,6 +302,8 @@ class LTXVideoTransformerBlock(nn.Module):
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
         temb: torch.Tensor,
+        audio_embeds: torch.Tensor,
+        audio_attention_mask: torch.Tensor,
         image_rotary_emb: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,
         encoder_attention_mask: Optional[torch.Tensor] = None,
     ) -> torch.Tensor:
@@ -320,6 +333,15 @@ class LTXVideoTransformerBlock(nn.Module):
             attention_mask=encoder_attention_mask,
         )
         hidden_states = hidden_states + attn_hidden_states
+
+        attn_hidden_states = self.audio_attn(
+            hidden_states,
+            encoder_hidden_states=audio_embeds,
+            image_rotary_emb=None,
+            attention_mask=audio_attention_mask,
+        )
+        hidden_states = hidden_states + attn_hidden_states
+
         norm_hidden_states = self.norm2(hidden_states) * (1 + scale_mlp) + shift_mlp
 
         ff_output = self.ff(norm_hidden_states)
@@ -396,6 +418,10 @@ class LTXVideoTransformer3DModel(
             in_features=caption_channels, hidden_size=inner_dim
         )
 
+        self.audio_attn_projection = PixArtAlphaTextProjection(
+            in_features=1024, hidden_size=inner_dim
+        )
+
         self.rope = LTXVideoRotaryPosEmbed(
             dim=inner_dim,
             base_num_frames=20,
@@ -433,6 +459,8 @@ class LTXVideoTransformer3DModel(
         self,
         hidden_states: torch.Tensor,
         encoder_hidden_states: torch.Tensor,
+        audio_embeds: torch.Tensor,
+        audio_attention_mask: torch.Tensor,
         timestep: torch.LongTensor,
         encoder_attention_mask: torch.Tensor,
         num_frames: Optional[int] = None,
@@ -498,6 +526,15 @@ class LTXVideoTransformer3DModel(
             batch_size, -1, hidden_states.size(-1)
         )
 
+        audio_embeds = self.audio_attn_projection(audio_embeds)
+        audio_embeds = audio_embeds.view(batch_size, -1, audio_embeds.size(-1))
+
+        if audio_attention_mask is not None and audio_attention_mask.ndim == 2:
+            audio_attention_mask = (
+                1 - audio_attention_mask.to(hidden_states.dtype)
+            ) * -10000.0
+            audio_attention_mask = audio_attention_mask.unsqueeze(1)
+
         for block in self.transformer_blocks:
             if torch.is_grad_enabled() and self.gradient_checkpointing:
                 hidden_states = self._gradient_checkpointing_func(
@@ -505,6 +542,8 @@ class LTXVideoTransformer3DModel(
                     hidden_states,
                     encoder_hidden_states,
                     temb,
+                    audio_embeds,
+                    audio_attention_mask,
                     image_rotary_emb,
                     encoder_attention_mask,
                 )
@@ -513,6 +552,8 @@ class LTXVideoTransformer3DModel(
                     hidden_states=hidden_states,
                     encoder_hidden_states=encoder_hidden_states,
                     temb=temb,
+                    audio_embeds=audio_embeds,
+                    audio_attention_mask=audio_attention_mask,
                     image_rotary_emb=image_rotary_emb,
                     encoder_attention_mask=encoder_attention_mask,
                 )

@@ -355,6 +355,9 @@ class LtxvAudioTrainer:
         prompt_embeds = text_conditions["prompt_embeds"]
         prompt_attention_mask = text_conditions["prompt_attention_mask"]
 
+        audio_conditions = batch["audio_conditions"]
+        audio_embeds = audio_conditions["audio_latents"]
+        audio_attention_mask = audio_conditions["attention_mask"]
         sigmas = self._timestep_sampler.sample_for(packed_latents)
         timesteps = torch.round(sigmas * 1000.0).long()
 
@@ -399,6 +402,8 @@ class LtxvAudioTrainer:
             width=latent_width,
             rope_interpolation_scale=rope_interpolation_scale,
             return_dict=False,
+            audio_embeds=audio_embeds,
+            audio_attention_mask=audio_attention_mask,
         )[0]
 
         loss = (model_pred - targets).pow(2)
@@ -504,6 +509,10 @@ class LtxvAudioTrainer:
         if self._config.model.training_mode == "lora":
             # For LoRA training, first set up LoRA layers
             self._setup_lora()
+            for name, module in self._transformer.named_modules():
+                if "audio_attn" in name:
+                    for param in module.parameters():
+                        param.requires_grad = True
         elif self._config.model.training_mode == "full":
             # For full training, unfreeze all transformer parameters
             self._transformer.requires_grad_(True)
@@ -529,12 +538,14 @@ class LtxvAudioTrainer:
     def _setup_lora(self) -> None:
         """Configure LoRA adapters for the transformer. Only called in LoRA training mode."""
         logger.debug(f"Adding LoRA adapter with rank {self._config.lora.rank}")
+        exclude_modules = "audio_attn"
         lora_config = LoraConfig(
             r=self._config.lora.rank,
             lora_alpha=self._config.lora.alpha,
             target_modules=self._config.lora.target_modules,
             lora_dropout=self._config.lora.dropout,
             init_lora_weights=True,
+            exclude_modules=exclude_modules,
         )
         self._transformer.add_adapter(lora_config)
 
@@ -931,55 +942,3 @@ class LtxvAudioTrainer:
             }
 
         return collated
-        # result = {}
-
-        # # Standard collation for non-audio elements
-        # for key in ["latent_conditions", "text_conditions"]:
-        #     if all(key in item for item in batch):
-        #         result[key] = {
-        #             k: (
-        #                 torch.stack([item[key][k] for item in batch])
-        #                 if isinstance(batch[0][key][k], torch.Tensor)
-        #                 and batch[0][key][k].dim() > 0
-        #                 else [item[key][k] for item in batch]
-        #             )
-        #             for k in batch[0][key]
-        #         }
-
-        # # Special handling for audio embeddings
-        # if "audio_conditions" in batch[0]:
-        #     # Find the maximum sequence length in this batch
-        #     seq_lengths = [
-        #         item["audio_conditions"]["audio_latents"].shape[0] for item in batch
-        #     ]
-        #     max_seq_len = max(seq_lengths)
-
-        #     # Prepare batched tensors
-        #     batch_size = len(batch)
-        #     embed_dim = batch[0]["audio_conditions"]["audio_latents"].shape[
-        #         1
-        #     ]  # Should be 1024
-
-        #     # Initialize padded tensors
-        #     padded_embeddings = torch.zeros(batch_size, max_seq_len, embed_dim)
-        #     attention_masks = torch.zeros(batch_size, max_seq_len, dtype=torch.bool)
-
-        #     # Fill in the actual data
-        #     for i, item in enumerate(batch):
-        #         audio_data = item["audio_conditions"]
-        #         seq_len = seq_lengths[i]
-
-        #         # Copy the embeddings
-        #         padded_embeddings[i, :seq_len] = audio_data["audio_latents"]
-
-        #         # Set the attention mask (1s for real data)
-        #         attention_masks[i, :seq_len] = 1
-
-        #     # Store the batched tensors
-        #     result["audio_conditions"] = {
-        #         "audio_latents": padded_embeddings,
-        #         "attention_mask": attention_masks,
-        #         "seq_lengths": torch.tensor(seq_lengths),
-        #     }
-
-        # return result

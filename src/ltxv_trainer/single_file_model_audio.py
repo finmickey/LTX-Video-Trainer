@@ -361,6 +361,42 @@ class FromOriginalModelMixin:
                 f"Some weights of the model checkpoint were not used when initializing {cls.__name__}: \n {[', '.join(unexpected_keys)]}"
             )
 
+        missing_keys = [
+            name
+            for name, param in model.named_parameters()
+            if name not in diffusers_format_checkpoint
+        ]
+
+        for name in missing_keys:
+            module = model
+            parts = name.split(".")
+            for part in parts[:-1]:
+                module = getattr(module, part)
+            param_name = parts[-1]
+            param = getattr(module, param_name)
+
+            if isinstance(param, torch.nn.Parameter):
+                shape = param.shape
+                new_data = torch.empty(shape, dtype=torch_dtype)
+                torch.nn.init.normal_(new_data, mean=0.0, std=1e-5)
+                new_param = torch.nn.Parameter(new_data)
+                setattr(module, param_name, new_param)
+                logger.info(f"Replaced meta param with zeros: {name}")
+            else:
+                logger.info(f"Skipping non-parameter {name}")
+
+        for name, buffer in model.named_buffers():
+            if name not in diffusers_format_checkpoint:
+                shape = buffer.shape
+                new_buffer = torch.zeros(shape, dtype=torch_dtype)
+                module = model
+                parts = name.split(".")
+                for part in parts[:-1]:
+                    module = getattr(module, part)
+                buffer_name = parts[-1]
+                module.register_buffer(buffer_name, new_buffer)
+                logger.info(f"Replaced meta buffer with zeros: {name}")
+
         if hf_quantizer is not None:
             hf_quantizer.postprocess_model(model)
             model.hf_quantizer = hf_quantizer
